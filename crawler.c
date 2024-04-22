@@ -1,21 +1,33 @@
-#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include <strings.h>
-#include <unistd.h>
-
 #include <curl/curl.h>         // For fetching HTML content
 #include <libxml/HTMLparser.h> // For HTML parsing
 
 #define MAX_URL_LEN 1024
 #define MAX_DEPTH 5 // Maximum depth to crawl
 
+// Callback function to write fetched data into a buffer.
+size_t write_callback(void *ptr, size_t size, size_t nmemb, char **html_content)
+{
+    size_t realsize = size * nmemb;
+    *html_content = realloc(*html_content, realsize + 1);
+    if (*html_content)
+    {
+        memcpy(*html_content, ptr, realsize);
+        (*html_content)[realsize] = '\0';
+    }
+    return realsize;
+}
+
+// Function declaration for write_callback
+size_t write_callback(void *ptr, size_t size, size_t nmemb, char **html_content);
+
 // Structure for queue elements.
 typedef struct URLQueueNode
 {
-    char url[MAX_URL_LEN];
+    char *url;
     int depth;
     struct URLQueueNode *next;
 } URLQueueNode;
@@ -47,8 +59,7 @@ void enqueue(URLQueue *queue, const char *url, int depth)
         fprintf(stderr, "Error: Memory allocation failed\n");
         return;
     }
-    strncpy(newNode->url, url, MAX_URL_LEN - 1);
-    newNode->url[MAX_URL_LEN - 1] = '\0';
+    newNode->url = strdup(url); // Allocate memory for the URL
     newNode->depth = depth;
     newNode->next = NULL;
 
@@ -106,7 +117,6 @@ char *fetch_html_content(const char *url)
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L); // Follow redirects
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0");
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, NULL); // To receive data
 
     // Buffer to store HTML content
     char *html_content = malloc(1);
@@ -118,6 +128,7 @@ char *fetch_html_content(const char *url)
     }
     html_content[0] = '\0';
 
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &html_content);
 
     CURLcode res = curl_easy_perform(curl);
@@ -174,7 +185,7 @@ void parse_html_links(const char *html_content, URLQueue *queue, int depth)
         }
     }
 
-    xmlFreeDoc(doc); // Corrected function call
+    xmlFreeDoc(doc);
     htmlFreeParserCtxt(ctxt);
 }
 
@@ -206,6 +217,7 @@ void *fetch_url(void *arg)
             }
             free(html_content);
         }
+        free(node->url); // Free URL memory
         free(node);
     }
 
