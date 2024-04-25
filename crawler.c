@@ -5,12 +5,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <math.h>
 #include <signal.h>
 #include <pthread.h>
 #include <unistd.h>
 
 #define URLLEN 1000
+
 pthread_mutex_t lock;
 int max_depth; // Maximum depth to crawl
 
@@ -32,6 +32,13 @@ typedef struct
     size_t size;
 } memory;
 
+// Function to handle errors
+void handle_error(const char *msg)
+{
+    fprintf(stderr, "Error: %s\n", msg);
+    exit(EXIT_FAILURE);
+}
+
 size_t grow_buffer(void *contents, size_t sz, size_t nmemb, void *ctx)
 {
     size_t realsize = sz * nmemb;
@@ -39,8 +46,7 @@ size_t grow_buffer(void *contents, size_t sz, size_t nmemb, void *ctx)
     char *ptr = realloc(mem->buf, mem->size + realsize);
     if (!ptr)
     {
-        printf("not enough memory (realloc returned NULL)\n");
-        return 0;
+        handle_error("not enough memory (realloc returned NULL)");
     }
     mem->buf = ptr;
     memcpy(&(mem->buf[mem->size]), contents, realsize);
@@ -51,11 +57,23 @@ size_t grow_buffer(void *contents, size_t sz, size_t nmemb, void *ctx)
 CURL *make_handle(char *url)
 {
     CURL *handle = curl_easy_init();
+    if (!handle)
+    {
+        handle_error("failed to initialize libcurl");
+    }
     curl_easy_setopt(handle, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_2TLS);
     curl_easy_setopt(handle, CURLOPT_URL, url);
     memory *mem = malloc(sizeof(memory));
+    if (!mem)
+    {
+        handle_error("failed to allocate memory for memory buffer");
+    }
     mem->size = 0;
     mem->buf = malloc(1);
+    if (!mem->buf)
+    {
+        handle_error("failed to allocate memory for buffer data");
+    }
     curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, grow_buffer);
     curl_easy_setopt(handle, CURLOPT_WRITEDATA, mem);
     curl_easy_setopt(handle, CURLOPT_PRIVATE, mem);
@@ -116,9 +134,13 @@ size_t follow_links(CURLM *multi_handle, memory *mem, char *url, int depth)
             continue;
         if (!strncmp(link, "http://", 7) || !strncmp(link, "https://", 8))
         {
-            curl_multi_add_handle(multi_handle, make_handle(link));
-            if (count++ == max_link_per_page)
-                break;
+            if (depth < max_depth - 1) // Check if we're within the depth limit
+            {
+                curl_multi_add_handle(multi_handle, make_handle(link));
+                if (count++ == max_link_per_page)
+                    break;
+                count += follow_links(multi_handle, mem, link, depth + 1); // Recursive call with increased depth
+            }
         }
         xmlFree(link);
     }
@@ -135,11 +157,19 @@ void *crawler(void *url_ptr)
 {
     char *url = (char *)url_ptr;
     pthread_mutex_lock(&lock);
-    FILE *datafile = fopen("datafile.txt", "a");
+    FILE *datafile = fopen("datafile.txt", "w"); // Open in write mode instead of append mode
+    if (!datafile)
+    {
+        handle_error("failed to open datafile.txt for writing");
+    }
     signal(SIGINT, sighandler);
     LIBXML_TEST_VERSION;
     curl_global_init(CURL_GLOBAL_DEFAULT);
     CURLM *multi_handle = curl_multi_init();
+    if (!multi_handle)
+    {
+        handle_error("failed to initialize libcurl multi handle");
+    }
     curl_multi_setopt(multi_handle, CURLMOPT_MAX_TOTAL_CONNECTIONS, max_connections);
     curl_multi_setopt(multi_handle, CURLMOPT_MAX_HOST_CONNECTIONS, 6L);
 
@@ -194,7 +224,7 @@ void *crawler(void *url_ptr)
                 }
                 else
                 {
-                    printf("[%d] Connection failure: %s\n", complete, url);
+                    fprintf(stderr, "[%d] Connection failure: %s\n", complete, url);
                 }
                 curl_multi_remove_handle(multi_handle, handle);
                 curl_easy_cleanup(handle);
@@ -216,8 +246,8 @@ int main(int argc, char *argv[])
 {
     if (argc != 3)
     {
-        printf("Usage: %s <URL> <max_depth>\n", argv[0]);
-        return 1;
+        fprintf(stderr, "Usage: %s <URL> <max_depth>\n", argv[0]);
+        return EXIT_FAILURE;
     }
 
     pthread_mutex_init(&lock, NULL);
@@ -227,9 +257,14 @@ int main(int argc, char *argv[])
     pthread_t tid;
     int error = pthread_create(&tid, NULL, crawler, (void *)url);
     if (0 != error)
+    {
         fprintf(stderr, "Couldn't create crawler thread, error: %d\n", error);
+        return EXIT_FAILURE;
+    }
     else
+    {
         fprintf(stderr, "Crawler thread created for URL: %s\n", url);
+    }
 
     pthread_join(tid, NULL);
     pthread_mutex_destroy(&lock);
@@ -238,8 +273,7 @@ int main(int argc, char *argv[])
     FILE *datafile = fopen("datafile.txt", "r");
     if (!datafile)
     {
-        fprintf(stderr, "Error: Unable to open datafile.txt\n");
-        return 1;
+        handle_error("failed to open datafile.txt for reading");
     }
 
     char line[1000];
@@ -249,5 +283,5 @@ int main(int argc, char *argv[])
     }
 
     fclose(datafile);
-    return 0;
+    return EXIT_SUCCESS;
 }
