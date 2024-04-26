@@ -1,16 +1,17 @@
-CC = gcc
-CFLAGS = -Wall -Wextra -pthread -lcurl -lxml2
-SRC = main.c
-OBJ = $(SRC:.c=.o)
-TARGET = crawler
+CC=gcc
+CFLAGS=-Wall -Wextra -Werror -pedantic
+LIBS=-lcurl -lpthread -lxml2
+TARGET=crawler
+SRC=crawler.c
+OBJ=crawler.o
 
 all: $(TARGET)
 
 $(TARGET): $(OBJ)
-    $(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LIBS)
 
-%.o: %.c
-    $(CC) $(CFLAGS) -c -o $@ $<
+$(OBJ): $(SRC)
+	$(CC) $(CFLAGS) -c -o $@ $^
 
 clean:
-    rm -f $(OBJ) $(TARGET)
+	rm -f $(TARGET) $(OBJ)
