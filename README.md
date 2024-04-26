@@ -16,3 +16,13 @@ Web crawler includes the following functionalities:
 • Synchronization: Implement synchronization mechanisms to manage access to shared resources among threads.
 • Error Handling: Handle possible errors gracefully, including network errors, parsing errors, and dead links.
 • Logging: Log the crawler’s activity, including fetched URLs and encountered errors.
+
+# Usage
+
+1 - Compile the program using the following command:
+
+gcc -Wall -Wextra -Werror -pedantic -o crawler crawler.c -lcurl -lpthread -lxml2
+
+2 - Run the code using the following command, providing a starting URL and maximum depth as command-line arguments:
+
+./crawler <URL> <max_depth>
